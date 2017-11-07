@@ -1,0 +1,172 @@
+﻿<#@ template language="C#" debug="false"#>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.Linq" #>
+<#@ assembly name="System.Xml" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.IO" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Text.RegularExpressions" #>
+<#@ import namespace="System.Xml" #>
+<#@ import namespace="EF.Utility.CS" #>
+<#
+string inputFile = this.InputFile;
+string nameSpace = this.Namespace;
+var textTransform = DynamicTextTransformation.Create(this);
+
+var className = Path.GetFileNameWithoutExtension(inputFile);
+var normalizedClassName = className.Replace(".", "_");
+var entries = ResxReader.GetEntriesFromFile(inputFile);
+// alphabetical
+entries.Sort(new Comparison<ResxReader.ResourceEntry>((e1, e2) => (e1.Name).CompareTo(e2.Name)));
+
+var isEntityResourceFile = this.InputFile.Contains(".Resources.");
+
+#>
+using System;
+using System.Threading;
+using System.Runtime.Serialization;
+
+namespace <#= nameSpace #> {
+
+<#
+	if (isEntityResourceFile) {
+#>
+#pragma warning disable 1591
+<#
+	} // if isEntityResourceFile
+#>
+    /// <summary>
+	/// This class was generated from the "<#= Path.GetFileName(this.InputFile) #>" file using the
+	/// VS.CustomTools Utility (ResxT4.tt).
+	/// </summary>
+	[global::System.CodeDom.Compiler.GeneratedCodeAttribute("VS.CustomTools.ResxT4", "1.0.0.0")]
+	public class <#= normalizedClassName #> {
+
+		private static global::System.Resources.ResourceManager resourceMan;
+
+		[global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
+		private static global::System.Resources.ResourceManager ResourceManager {
+			get {
+				if (object.ReferenceEquals(resourceMan, null)) {
+					global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("<#= this.DefaultNamespace #>.<#= className #>", typeof(<#= normalizedClassName #>).Assembly);
+					resourceMan = temp;
+				}
+				return resourceMan;
+			}
+		}
+
+		[global::System.ComponentModel.EditorBrowsableAttribute(global::System.ComponentModel.EditorBrowsableState.Advanced)]
+		private static string GetResourceString(string key, params string[] tokens) {
+			var culture = Thread.CurrentThread.CurrentCulture;
+			var str = ResourceManager.GetString(key, culture);
+
+			for (int i = 0; i < tokens.Length; i += 2) {
+				str = str.Replace(tokens[i], tokens[i + 1]);
+			}
+
+			return str;
+		}
+
+<#
+foreach (var entry in entries) {
+	var tokens = Regex.Matches(entry.Value, @"{(([A-Za-z]{1}\w*?)|([A-Za-z_]{1}\w+?))?}").Cast<Match>().Select(m => m.Value);
+	var hasTokens = tokens.Any();
+	var isException = entry.Name.EndsWith("Exception");
+	var hasComment = !String.IsNullOrWhiteSpace(entry.Comment);
+    string inParams = "";
+    string outParams = "";
+
+    if (hasTokens) {
+        inParams = tokens.Aggregate("", (list, value) => list += ", string " + value).Replace("{", "").Replace("}", "");
+        outParams = tokens.Aggregate("", (list, value) => list += ", \"" + value + "\", " + value.Replace("{", "").Replace("}", ""));
+    }
+	if (hasComment) {
+#>
+		///	<summary>
+		///	<#= entry.Comment #>
+		///	</summary>
+<#
+	} // if hasComment
+	if (isException) {
+#>
+		[Serializable]
+		public class <#= entry.Name #> : global::Common.DataAccess.LocalizedException {
+
+#pragma warning disable 1573
+			/// <summary>
+			/// Initializes a new instance of the <see cref="<#= entry.Name #>"/> class, setting
+			/// the <see cref="System.Exception.Message"/> property of the new instance to a system-supplied message
+			/// that describes the error, such as "<#= entry.Value.Replace(Environment.NewLine, Environment.NewLine + "\t\t\t/// ") #>" This message takes into
+			/// account the current system culture.
+			/// </summary>
+			public <#= entry.Name #>(<#= !String.IsNullOrWhiteSpace(inParams) ? inParams.Substring(2) : "" #>)
+				: base(GetResourceString("<#= entry.Name #>"<#= outParams #>)) {
+			}
+
+			/// <summary>
+			/// Initializes a new instance of the <see cref="<#= entry.Name #>"/> class with a
+			/// reference to the inner exception that is the cause of this exception.
+			/// </summary>
+			/// <param name="innerException">The exception that is the cause of the current exception, or a <see langword="null"/> if no inner exception is specified.</param>
+			public <#= entry.Name #>(Exception innerException<#= inParams #>)
+				: base(GetResourceString("<#= entry.Name #>"<#= outParams #>), innerException) {
+			}
+
+			/// <summary>
+			/// Initializes a new instance of the <#= entry.Name #> class with serialized data.
+			/// </summary>
+			/// <param name="info">The <see cref="System.Runtime.Serialization.SerializationInfo"/> that holds the serialized object data about the exception being thrown.</param>
+			/// <param name="context">The <see cref="System.Runtime.Serialization.StreamingContext"/> that contains contextual information about the source or destination.</param>
+			public <#= entry.Name #>(SerializationInfo info, StreamingContext context)
+				: base(info, context) {
+			}
+#pragma warning restore 1573
+
+		}
+<#
+	} else if (hasTokens) {
+#>
+#pragma warning disable 1573
+		public static string <#= entry.Name #>(<#= inParams.Substring(2) #>) {
+			return GetResourceString("<#= entry.Name #>"<#= outParams #>);
+		}
+#pragma warning restore 1573
+<#
+	} else {
+#>
+		public static string <#= entry.Name #> {
+			get {
+				return GetResourceString("<#= entry.Name #>");
+			}
+		}
+<#
+	} // if hasTokens
+#>
+
+<#
+} // foreach entry
+#>
+	}
+<#
+	if (isEntityResourceFile) {
+#>
+#pragma warning restore 1591
+<#
+	} // if isEntityResourceFile
+#>
+
+}
+<#+
+	private string InputFile;
+	private string Namespace;
+	private string DefaultNamespace;
+
+	public virtual string TransformText(string inputFile, string nameSpace, string defaultNamespace) {
+		this.InputFile = inputFile;
+		this.Namespace = nameSpace;
+		this.DefaultNamespace = defaultNamespace;
+
+		return this.TransformText();
+	}
+#>
